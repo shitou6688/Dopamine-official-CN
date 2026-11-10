@@ -4,6 +4,30 @@
 
 > 与 `Dopamine-roothide-CN` 是两条独立产线。本仓库针对官方主线（rootless），不含 roothide 改动。
 
+## 合并版（hybrid）：L1 构建期索引 + L2 加固运行时解析
+
+2026-11-11 起本仓库把两套方案的优点合在一起（与 `Dopamine-roothide-CN` 同一套补丁；两版上游的 `libgrabkernel2.a` / `libpartial.a` 哈希完全一致）：
+
+| 能力 | 来源 | 作用 |
+| --- | --- | --- |
+| 构建期 `KernelIndex.plist`（全量约 5468 条） | 本仓库 CN 版 | 命中即只访问 Apple CDN，国内普通签名免代理 |
+| 加固版 `libgrabkernel2.a` / `libpartial.a` | 朋友修复版 | 索引未命中时运行时动态解析，新固件无需重打包也能尝试 |
+| `Accept-Encoding: identity`、Safari UA、`If-Range`/ETag、200 响应裁剪、短读拒绝、每候选重试 3 次 | 朋友版（L2）+ 已同步进 L1 | 弱网与 CDN 边缘更稳 |
+| `BuildManifest` SHA 摘要 / ZIP CRC32 / SHA-256 | 两边 | 损坏数据不落盘 |
+| `boot_manifest_hash()`、`activePrebootPath` 等空指针防护 | 朋友版 | 消除越狱前取不到 preboot 哈希时的崩溃 |
+
+**三层链路**
+
+- **L1**（主路，日志 `Downloading Kernel (CN hybrid L1)`）：查内置索引 → 每个文件 1 次 Range 请求 → raw inflate → CRC32 校验 → 写 `Documents/`。**不访问 `api.appledb.dev`**。
+- **L2**（日志 `Falling back to hardened runtime resolve (L2)`）：索引未命中 → 加固 `grab_images()` 遍历 AppleDB 全部候选、每个重试 3 次、按 BuildManifest Digest 校验、补齐三件套。**此层可能访问境外接口**，仅作兜底。
+- **L3**：上游失败路径，不下载数 GB 整包 IPSW。
+
+新增文件：`Tools/apply_hardening.py`、`Tools/hardened/*.a`（fat arm64 + arm64e）、`Tools/hardened/src/`（可复现源码）。工作流在 `Apply CN kernel-source patch` 之后自动执行；官方版仍保留 `Link zlib for the BaseBin daemon` 步骤（加固库同样用 zlib inflate）。
+
+抓日志：`idevicesyslog -u <UDID> | grep -E "CNKernel|Downloading Kernel|hardened|Trying firmware|Retrying|Downloaded"`。
+
+> L2 的价值是覆盖索引未收录的新固件，不是让国内免代理；免代理靠 L1。真机越狱验证未执行。
+
 ## 为什么官方版会卡在下载内核
 
 官方 `Application/Dopamine/Dependencies/libgrabkernel2.a` 里硬编码了两个境外元数据接口：
@@ -15,7 +39,7 @@ https://api.appledb.dev/ios/%@;%@.json
 
 每次越狱时 `grab_images()` 先拉这份索引才能确定 IPSW 直链，国内普通网络拉不动。但固件本体在 `updates.cdn-apple.com`，国内直连有边缘缓存节点，实测返回 `206 Partial Content`、`X-Cache: HIT`，20 MB 内核片段 2–4 秒取完。
 
-本仓库做的就是把「解析元数据」这一步从**设备端**挪到**构建机**：CI 在打包时读取所有 IPSW 的 ZIP 中央目录（只取文件名 / offset / length / 压缩方式 / 原始大小 / CRC32，不下载文件内容），生成 `KernelIndex.plist` 内置进 IPA。设备端用 `hw.machine|kern.osversion` 查表，只向 Apple CDN 发 3 个 Range 请求，取回后 raw-inflate 并用 CRC32 验真，再落到 `Documents/kernelcache`、`sptm.im4p`、`txm.im4p`。查不到条目才回落原 `grab_images()`。
+本仓库做的就是把「解析元数据」这一步从**设备端**挪到**构建机**：CI 在打包时读取所有 IPSW 的 ZIP 中央目录（只取文件名 / offset / length / 压缩方式 / 原始大小 / CRC32，不下载文件内容），生成 `KernelIndex.plist` 内置进 IPA。设备端用 `hw.machine|kern.osversion` 查表，只向 Apple CDN 发 3 个 Range 请求，取回后 raw-inflate 并用 CRC32 验真，再落到 `Documents/kernelcache`、`sptm.im4p`、`txm.im4p`。查不到条目才回落到加固版 `grab_images()`（见合并版章节 L2）。
 
 ## 产物
 
