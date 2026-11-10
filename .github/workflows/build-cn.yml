@@ -193,6 +193,25 @@ jobs:
           python3 Tools/cn_kernel.py selftest
           python3 Tools/cn_kernel.py patch --repo .
 
+      # The official BaseBin/dopamine daemon compiles
+      # Application/Dopamine/Jailbreak/*.m, including the patched
+      # DOEnvironmentManager.m, but its LDFLAGS only include -lcompression.
+      # The CN header uses zlib's crc32/inflate, so add -lz for this target.
+      # The iOS app target already links libz.tbd in project.pbxproj.
+      - name: Link zlib for the BaseBin daemon
+        run: |
+          set -ex
+          cd "$WORK_DIR"
+          python3 -c "
+          p = 'BaseBin/dopamine/Makefile'
+          s = open(p, encoding='utf-8').read()
+          if '-lz' not in s:
+              s = s.replace('LDFLAGS = -L../.build', 'LDFLAGS = -lz -L../.build', 1)
+              open(p, 'w', encoding='utf-8', newline='').write(s)
+          print([l for l in s.splitlines() if l.startswith('LDFLAGS')][0])
+          "
+          grep '^LDFLAGS' BaseBin/dopamine/Makefile
+
       - name: Resolve kernel metadata (single device)
         if: inputs.coverage == 'single' && inputs.mode != 'offline'
         run: |

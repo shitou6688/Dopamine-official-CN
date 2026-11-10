@@ -36,9 +36,11 @@ https://api.appledb.dev/ios/%@;%@.json
 
 只给自己一台机做完全离线包时：把 `coverage` 改 `single`、`mode` 改 `both`，并在 `Tools/targets.txt` 写 `机型|Build`（机型用 `ideviceinfo -k ProductType`，Build 在设置 → 通用 → 关于本机）。也可直接在 Run workflow 里填 `device` + `os_build`。
 
-## 与 roothide 版工作流的唯一实质差异
+## 与 roothide 版工作流的构建链差异
 
-**官方仓库不内置 bootstrap**。`Application/Dopamine.xcodeproj/project.pbxproj` 把 `bootstrap_1800.tar.zst` / `bootstrap_1900.tar.zst` 列为 bundle 资源，但 git 里没有，官方 CI 用 `Resources/download_bootstraps.sh` 从 `apt.procurs.us` 拉取（各约 20 MB）。本工作流把这一步做成了带重试的显式下载，放在 `xcodebuild` 之前；**这一步只在 runner 上跑，和设备端网络无关**。roothide fork 把这两个包直接提交在仓库里，所以那版不需要。
+1. **官方仓库不内置 bootstrap**。`project.pbxproj` 把 `bootstrap_1800.tar.zst` / `bootstrap_1900.tar.zst` 列为 bundle 资源，但 git 里没有，官方 CI 用 `Resources/download_bootstraps.sh` 从 `apt.procurs.us` 拉取（各约 20 MB）。本工作流把这一步做成带重试的显式下载，放在 `xcodebuild` 之前；**只在 runner 上跑，与设备端网络无关**。roothide fork 把这两个包直接提交在仓库里，所以那版不需要。
+
+2. **BaseBin 守护进程需要补 `-lz`**。官方 `BaseBin/dopamine/Makefile` 把 `Application/Dopamine/Jailbreak/*.m` 一起编译进 `dopamine` 守护进程，但它的 `LDFLAGS` 只有 `-lcompression`，没有 zlib。补丁头里的 `crc32()` / `inflate()` 因此链接报 `Undefined symbols for architecture arm64`。工作流在打完补丁后给该 Makefile 的 `LDFLAGS` 加 `-lz`（幂等）。iOS app target 在 `project.pbxproj` 里本来就链接了 `libz.tbd`，不受影响。
 
 其余复用同一套方案：THEOS（官方 `theos/theos` 安装脚本 + iPhoneOS16.5 SDK）、Procursus、trustcache、`gmake NIGHTLY=1`。工具链固定 `macos-15` + Xcode 16.4 —— Xcode 26 / Apple clang 21 链接 `watchdoghook.dylib` 会段错误，这是 CI 实测排出来的。
 
