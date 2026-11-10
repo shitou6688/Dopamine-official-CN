@@ -65,8 +65,19 @@ https://api.appledb.dev/ios/%@;%@.json
 
 ## 验证状态与限制
 
-- 已验证：官方 3.0.13 源码上补丁的精确 diff 与幂等性、ZIP64 目录解析、Apple CDN 的 206 Range、真实 IPSW 内核的 CRC32 端到端一致性、工作流 YAML 与脚本语法。
-- CI 全量编译结果：见仓库 Actions 与 Releases（跑完后在此补充 run 号）。
+**CI 全量构建已跑通**：run [`42829205538`](https://github.com/shitou6688/Dopamine-official-CN/actions/runs/42829205538)，18 个步骤全绿（21 分 56 秒），Release [`cn-3.0.13-2`](https://github.com/shitou6688/Dopamine-official-CN/releases/tag/cn-3.0.13-2) 已发布 2 个资产：
+
+| 文件 | 大小 |
+| --- | --- |
+| `Dopamine-CN-3.0.13-5b1d2c1.ipa` | 55,902,457 B |
+| `Dopamine-CN-3.0.13-5b1d2c1.tipa` | 55,902,457 B |
+
+已从产物中解包核对：`KernelIndex.plist` 为 schema 2、5,468 条、181 设备、0 跳过（4,892,462 B）；`bootstrap_1800.tar.zst`（20,792,571 B）、`bootstrap_1900.tar.zst`（20,772,810 B）、`sileo.deb`、`zebra.deb` 均在 bundle 内；二进制含 `Downloading Kernel (CN direct)` 补丁标记。
+
+国内直连实测（显式绕过本机应用层代理）：用产物索引里的 `iPhone15,3|23A355`（iOS 26.0.1）向 Apple CDN 发 3 个 Range，全部 `HTTP 206`，kernel 19,901,404 B / 2.59 s，sptm / txm 各 171,313 / 160,451 B，CRC32 三条全对。
+
+- 已验证：官方 3.0.13 源码上补丁的精确 diff 与幂等性、ZIP64 目录解析、真实 IPSW 内核的 CRC32 端到端一致性、工作流 YAML 与脚本语法、CI 全量编译 + 重签名打包 + Artifact/Release 上传。
+- 二进制里仍能搜到 `api.appledb.dev` 字符串，来自静态链接的 `libgrabkernel2.a` 回落路径；命中索引时设备端不会发起该请求。
 - **未执行**：真机越狱验证（需要实际设备）。
 - 索引按 `<机型>|<Build>` 固化，Apple 发布新系统后需重跑工作流刷新；未命中会静默回落原 `grab_images()`，功能正常但那台设备仍需代理。
 - 旧版本 IPSW 若被 Apple 下架导致直链 404，构建期自动跳过该条，或用 `firmware_url` 指定可访问的直链。
